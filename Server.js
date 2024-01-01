@@ -8,6 +8,7 @@ import { Timer, getMillis } from "./Timer.js";
 import { totalmem } from "os";
 import { Chess } from "chess.js";
 import { copyFileSync } from "fs";
+import { sourceMapsEnabled } from "process";
 
 const app = express();
 const server = createServer(app);
@@ -23,8 +24,38 @@ const idToUsername = new Map();
 const idToStatus = new Map(); // Idle, InGame, Queued
 const openGames = new Map(); // GameString : {}
 const runningGames = new Map();
+const idToGame = new Map();
 
 // GameString : {chessInstance, WhiteTimer, BlackTimer, WhiteId, BlackId}
+
+// Server Methods
+
+function clearRoom(roomId) {
+  const room = io.sockets.adapter.rooms.get(roomId);
+  if (room) {
+    for (const socketId of room) {
+      io.sockets.sockets.get(socketId).disconnect(true);
+    }
+  }
+}
+
+const endGame = (gameString, winner) => {
+  // Winner => w, b, d
+  const blackName = idToUsername.get(runningGames.get(gameString).blackId);
+  const whiteName = idToUsername.get(runningGames.get(gameString).whiteId);
+  const winnerName = whiteName;
+  if (winner == "b") winnerName: blackName;
+  const resultData = {
+    isDraw: winner == "d" ? true : false,
+    winColor: winner == "d" ? null : winner,
+    winnerName: winner == "d" ? null : winnerName,
+  };
+  io.to(gameString).emit("endGame", resultData);
+  runningGames.delete(gameString);
+  clearRoom(gameString);
+};
+
+// Server Methods Ends
 
 // Emits
 const userRegistered = (socket, userData) => {
@@ -52,6 +83,18 @@ const moveMessage = (senderSocket, gameString, moveObj, color) => {
     color,
   };
   io.to(gameString).emit("moveMessage", moveData);
+};
+
+const startGame = (gameString) => {
+  const gameInfo = runningGames.get(gameString);
+  if (!gameInfo) return;
+  const whiteName = idToUsername.get(gameInfo.whiteId);
+  const blackName = idToUsername.get(gameInfo.blackId);
+  const gameData = {
+    whiteName: whiteName,
+    blackName: blackName,
+  };
+  io.to(gameString).emit("startGame", gameData);
 };
 // Emits End
 
@@ -102,8 +145,13 @@ const createGame = (socket, gameData) => {
 };
 
 const joinGame = (socket, gameData) => {
+  if (idToUsername.get(socket.id) == null) {
+    gameJoinfailed(socket, { msg: "Invalid username." });
+    return;
+  }
   const { gameString } = gameData;
   const gameInfo = openGames.get(gameString);
+  const joinerName = idToUsername.get(socket.id);
 
   if (
     !gameInfo ||
@@ -114,7 +162,6 @@ const joinGame = (socket, gameData) => {
   }
 
   console.log(`String : ${gameString}`);
-  const joinerName = idToUsername.get(socket.id);
   const joinedId = socket.id;
   console.log("Join request");
   console.log(gameInfo);
@@ -165,6 +212,7 @@ const joinGame = (socket, gameData) => {
 
   socket.join(gameString);
   gameJoined(socket, joinedGameInfo);
+  startGame(gameString);
   console.log("Game Joined.");
 };
 
@@ -184,6 +232,17 @@ const sendMove = (socket, moveData) => {
   chessInstance.move(moveObj);
 
   moveMessage(socket, gameString, moveObj, color);
+
+  if (chessInstance.isDraw()) {
+    endGame(gameString, "d");
+    return;
+  } else if (chessInstance.isCheckmate()) {
+    let winner = "w";
+    if (chessInstance.turn() == "w") winner = "b";
+    endGame(gameString, winner);
+    return;
+  }
+
   console.log("Move Message Emitted.");
 };
 
@@ -198,7 +257,7 @@ io.on("connection", async (socket) => {
     sendMove(socket, moveData);
   });
   socket.on("disconnect", (socket) => {
-    console.log("Disconnected.");
+    const username = idToUsername.get(socket.id);
   });
 });
 
@@ -218,3 +277,5 @@ const isValidMove = (chessInstance, moveObj) => {
   }
   return true;
 };
+
+// Debugging
