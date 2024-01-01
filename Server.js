@@ -42,6 +42,17 @@ const gameJoinfailed = (socket, msg) => {
 const gameJoined = (socket, gameInfo) => {
   socket.emit("gameJoined", gameInfo);
 };
+const moveMessage = (senderSocket, gameString, moveObj, color) => {
+  const name = idToUsername[senderSocket.id];
+  const moveData = {
+    senderId: senderSocket.id,
+    gameString,
+    moveObj,
+    senderName: name,
+    color,
+  };
+  io.to(gameString).emit("moveMessage", moveData);
+};
 // Emits End
 
 const registerUser = (socket, userData) => {
@@ -151,8 +162,29 @@ const joinGame = (socket, gameData) => {
     myColor: joinerColor,
     opponentName: gameInfo.creator,
   };
+
+  socket.join(gameString);
   gameJoined(socket, joinedGameInfo);
   console.log("Game Joined.");
+};
+
+const sendMove = (socket, moveData) => {
+  console.log(`Send mvoe Message`);
+  console.log(moveData);
+  if (!moveData || !moveData.gameString) return;
+  const { gameString, moveObj, color } = moveData;
+  const gameData = runningGames.get(gameString);
+  if (!gameData) return;
+  const { chessInstance, whiteTimer, blackTimer, whiteId, blackId } = gameData;
+  if (chessInstance.turn() != color) return;
+  if (socket.id != whiteId && socket.id != blackId) return;
+  if (!isValidMove(chessInstance, moveObj)) return;
+
+  // if valid Move
+  chessInstance.move(moveObj);
+
+  moveMessage(socket, gameString, moveObj, color);
+  console.log("Move Message Emitted.");
 };
 
 io.on("connection", async (socket) => {
@@ -162,8 +194,27 @@ io.on("connection", async (socket) => {
   socket.on("registerUser", (userData) => registerUser(socket, userData));
   socket.on("createGame", (data) => createGame(socket, data));
   socket.on("joinGame", (gameData) => joinGame(socket, gameData));
+  socket.on("sendMove", (moveData) => {
+    sendMove(socket, moveData);
+  });
+  socket.on("disconnect", (socket) => {
+    console.log("Disconnected.");
+  });
 });
 
 server.listen(3000, () => {
   console.log("server running at http://localhost:3000");
 });
+
+const isValidMove = (chessInstance, moveObj) => {
+  const gameCopy = new Chess(); // Create a new instance
+  gameCopy.load(chessInstance.fen()); // Load the position from the original instance
+
+  const move = gameCopy.move(moveObj);
+
+  if (move === null) {
+    console.log("Invalid Move");
+    return false;
+  }
+  return true;
+};
