@@ -56,4 +56,4 @@ function getMillis(minutes, seconds = 0) {
   return millisFromMins + millisFromSecs;
 }
 
-export { Timer, minsToMillis, secsToMillis, getMillis };
+module.exports = { Timer, minsToMillis, secsToMillis, getMillis };

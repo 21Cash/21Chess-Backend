@@ -1,19 +1,16 @@
-import express from "express";
-import { createServer } from "http";
-import { Server } from "socket.io";
-import cors from "cors";
-import { PLAYERSTATUS } from "./Enums.js";
-import { generateHash } from "./Hash.js";
-import { Timer, getMillis } from "./Timer.js";
-import { totalmem, userInfo } from "os";
-import { Chess } from "chess.js";
-import { copyFileSync, stat } from "fs";
-import { sourceMapsEnabled } from "process";
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
+const { PLAYERSTATUS } = require("./Enums.js");
+const { generateHash } = require("./Hash.js");
+const { Timer, getMillis } = require("./Timer.js");
+const { Chess } = require("chess.js");
 
 let PORT = process.env.PORT || 3000;
 
 const app = express();
-const server = createServer(app);
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: "*",

@@ -1,4 +1,4 @@
-import crypto from "crypto";
+const crypto = require("crypto");
 
 function generateHash(username) {
   const currentTime = Date.now().toString();
@@ -15,4 +15,4 @@ function generateHash(username) {
   return twelveDigitHash;
 }
 
-export { generateHash };
+module.exports = { generateHash };

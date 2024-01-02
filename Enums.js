@@ -4,4 +4,4 @@ const PLAYERSTATUS = {
   InGame: "InGame",
 };
 
-export { PLAYERSTATUS };
+module.exports = { PLAYERSTATUS };
