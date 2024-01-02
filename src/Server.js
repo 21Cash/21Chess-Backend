@@ -5,10 +5,12 @@ import cors from "cors";
 import { PLAYERSTATUS } from "./Enums.js";
 import { generateHash } from "./Hash.js";
 import { Timer, getMillis } from "./Timer.js";
-import { totalmem } from "os";
+import { totalmem, userInfo } from "os";
 import { Chess } from "chess.js";
-import { copyFileSync } from "fs";
+import { copyFileSync, stat } from "fs";
 import { sourceMapsEnabled } from "process";
+
+let PORT = process.env.PORT || 3000;
 
 const app = express();
 const server = createServer(app);
@@ -21,14 +23,39 @@ const io = new Server(server, {
 app.use(cors());
 
 const idToUsername = new Map();
-const idToStatus = new Map(); // Idle, InGame, Queued
 const openGames = new Map(); // GameString : {}
-const runningGames = new Map();
-const idToGame = new Map();
+const runningGames = new Map(); // GameString : {}
+const idToInfo = new Map(); // id : => {curGameString, isPlaying, }
 
 // GameString : {chessInstance, WhiteTimer, BlackTimer, WhiteId, BlackId}
 
 // Server Methods
+
+const unRegisterPlayer = (socketId) => {
+  // i.e Disconnected
+  const inGame =
+    idToInfo.get(socketId) == null ? false : idToInfo.get(socketId).isPlaying;
+  const userInfo = idToInfo.get(socketId);
+  const gameString = userInfo.curGameString;
+
+  // Game Hasnt begun
+  if (openGames.has(gameString)) {
+    openGames.delete(gameString);
+    idToUsername.delete(socketId);
+    idToInfo.delete(socketId);
+    return;
+  }
+
+  // If Game Started i.e 2 Players Joined
+  if (inGame) {
+    const gameInfo = runningGames.get(gameString);
+    let winColor = "w"; // its opposite of disconnect's color
+    if (socketId == gameInfo.whiteId) winColor = "b";
+    idToUsername.delete(socketId);
+    idToInfo.delete(socketId);
+    endGame(gameString, winColor);
+  }
+};
 
 function clearRoom(roomId) {
   const room = io.sockets.adapter.rooms.get(roomId);
@@ -40,9 +67,12 @@ function clearRoom(roomId) {
 }
 
 const endGame = (gameString, winner) => {
+  console.log(`Ending Game ${gameString}`);
   // Winner => w, b, d
-  const blackName = idToUsername.get(runningGames.get(gameString).blackId);
-  const whiteName = idToUsername.get(runningGames.get(gameString).whiteId);
+  const gameInfo = runningGames.get(gameString);
+  const blackName = gameInfo.blackName;
+  const whiteName = gameInfo.whiteName;
+  const { whiteId, blackId } = gameInfo;
   const winnerName = whiteName;
   if (winner == "b") winnerName: blackName;
   const resultData = {
@@ -52,7 +82,25 @@ const endGame = (gameString, winner) => {
   };
   io.to(gameString).emit("endGame", resultData);
   runningGames.delete(gameString);
+
+  // Set Infos Of Players
+  setPlayingStatus(whiteId, false);
+  setPlayingStatus(blackId, false);
+
+  // Clear Room
   clearRoom(gameString);
+};
+
+const setPlayingStatus = (socketId, status, gameString) => {
+  if (!idToUsername.get(socketId)) return;
+  const curInfo = idToInfo.get(socketId);
+  let gameCode = "";
+  if (status) gameCode = gameString;
+  idToInfo.set(socketId, {
+    ...curInfo,
+    isPlaying: status,
+    curGameString: gameCode,
+  });
 };
 
 // Server Methods Ends
@@ -94,12 +142,14 @@ const startGame = (gameString) => {
     whiteName: whiteName,
     blackName: blackName,
   };
+
+  setPlayingStatus(gameInfo.whiteId, true, gameString);
+  setPlayingStatus(gameInfo.blackId, true, gameString);
   io.to(gameString).emit("startGame", gameData);
 };
 // Emits End
 
 const registerUser = (socket, userData) => {
-  console.log(userData);
   const { username } = userData;
   const alreadyDuplicate = idToUsername.has(username);
   if (alreadyDuplicate) {
@@ -107,19 +157,15 @@ const registerUser = (socket, userData) => {
     return;
   }
   idToUsername.set(socket.id, username);
-  idToStatus.set(socket.id, PLAYERSTATUS.Idle);
   console.log(`${username} Registered`);
   userRegistered(socket, { username });
 };
 
 const createGame = (socket, gameData) => {
-  console.log("Created Game Req");
+  console.log(`Created Game Req By ${idToUsername.get(socket.id)}`);
   const { isPublic, showEval, totalTime, timeIncrement, targetOpponent } =
     gameData;
-  const playerStatus = idToStatus.get(socket.id);
-  if (playerStatus != PLAYERSTATUS.Idle) return;
   const username = idToUsername.get(socket.id);
-  console.log(username);
 
   const gameString = generateHash(username);
   const gameInfo = {
@@ -133,9 +179,10 @@ const createGame = (socket, gameData) => {
     creatorColor: Math.random() < 0.5 ? "w" : "b",
     creatorId: socket.id,
   };
-  console.log(gameInfo);
   openGames.set(gameString, gameInfo);
-  idToStatus.set(username, PLAYERSTATUS.Queued);
+
+  // Update Player Status
+  setPlayingStatus(socket.id, true, gameString);
 
   // Create Room
   socket.join(gameString);
@@ -161,10 +208,8 @@ const joinGame = (socket, gameData) => {
     return;
   }
 
-  console.log(`String : ${gameString}`);
   const joinedId = socket.id;
-  console.log("Join request");
-  console.log(gameInfo);
+  console.log(`Join request By ${joinerName} to ${gameString}`);
 
   // Assigning Colors
   let joinerColor = "w";
@@ -194,12 +239,16 @@ const joinGame = (socket, gameData) => {
   openGames.delete(gameString);
   const whiteTimer = new Timer(totalTimeInMillis);
   const blackTimer = new Timer(totalTimeInMillis);
+  const whiteName = idToUsername.get(whiteId);
+  const blackName = idToUsername.get(blackId);
   runningGames.set(gameString, {
     chessInstance: new Chess(),
     whiteTimer,
     blackTimer,
     whiteId,
     blackId,
+    whiteName,
+    blackName,
   });
 
   runningGames.get(gameString).whiteTimer.start();
@@ -210,6 +259,8 @@ const joinGame = (socket, gameData) => {
     opponentName: gameInfo.creator,
   };
 
+  setPlayingStatus(socket.id, true, gameString);
+
   socket.join(gameString);
   gameJoined(socket, joinedGameInfo);
   startGame(gameString);
@@ -217,8 +268,6 @@ const joinGame = (socket, gameData) => {
 };
 
 const sendMove = (socket, moveData) => {
-  console.log(`Send mvoe Message`);
-  console.log(moveData);
   if (!moveData || !moveData.gameString) return;
   const { gameString, moveObj, color } = moveData;
   const gameData = runningGames.get(gameString);
@@ -242,27 +291,36 @@ const sendMove = (socket, moveData) => {
     endGame(gameString, winner);
     return;
   }
-
-  console.log("Move Message Emitted.");
 };
 
-io.on("connection", async (socket) => {
-  //console.log("a user connected");
-  //console.log(socket.id);
-
+io.on("connection", (socket) => {
   socket.on("registerUser", (userData) => registerUser(socket, userData));
   socket.on("createGame", (data) => createGame(socket, data));
   socket.on("joinGame", (gameData) => joinGame(socket, gameData));
   socket.on("sendMove", (moveData) => {
     sendMove(socket, moveData);
   });
-  socket.on("disconnect", (socket) => {
+  socket.on("disconnect", () => {
     const username = idToUsername.get(socket.id);
+    if (!username) return;
+    const userInfo = idToInfo.get(socket.id);
+    if (!userInfo) {
+      idToUsername.delete(username);
+    }
+    if (username) console.log(`${username} disconnected.`);
+    console.log(`${idToUsername.size} Players Online Now.`);
+    for (let x of idToUsername.keys()) {
+      console.log(x);
+    }
+    if (!username || !userInfo) {
+      return;
+    }
+    unRegisterPlayer(socket.id);
   });
 });
 
-server.listen(3000, () => {
-  console.log("server running at http://localhost:3000");
+server.listen(PORT, () => {
+  console.log(`server running at http://localhost:${PORT}`);
 });
 
 app.get("/test", (req, res) => {
