@@ -18,7 +18,7 @@ const io = new Server(server, {
   },
 });
 
-// app.use(cors());
+app.use(cors());
 
 const idToUsername = new Map();
 const idToStatus = new Map(); // Idle, InGame, Queued
@@ -263,6 +263,16 @@ io.on("connection", async (socket) => {
 
 server.listen(3000, () => {
   console.log("server running at http://localhost:3000");
+});
+
+app.get("/test", (req, res) => {
+  // Health Check
+  res.status(200).send("200 OK");
+});
+
+app.get("/serverInfo", (req, res) => {
+  const serverInfo = { playersOnline: idToUsername.size + 1 };
+  res.status(200).send(serverInfo);
 });
 
 const isValidMove = (chessInstance, moveObj) => {
