@@ -54,27 +54,31 @@ const unRegisterPlayer = (socketId) => {
   }
 };
 
+// Make All Room Members Leave the Room
 function clearRoom(roomId) {
   const room = io.sockets.adapter.rooms.get(roomId);
   if (room) {
     for (const socketId of room) {
-      io.sockets.sockets.get(socketId).disconnect(true);
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) {
+        socket.leave(roomId);
+      }
     }
   }
 }
-
-const endGame = (gameString, winner) => {
+// WinnerChar => w, b, d
+const endGame = (gameString, winnerChar) => {
   console.log(`Ending Game ${gameString}`);
-  // Winner => w, b, d
+
   const gameInfo = runningGames.get(gameString);
   const blackName = gameInfo.blackName;
   const whiteName = gameInfo.whiteName;
   const { whiteId, blackId } = gameInfo;
-  let winnerUsername = winner === "b" ? blackName : whiteName;
+  let winnerUsername = winnerChar == "b" ? blackName : whiteName;
   const resultData = {
-    isDraw: winner === "d",
-    winColor: winner !== "d" ? winner : null,
-    winnerName: winner !== "d" ? winnerUsername : null,
+    isDraw: winnerChar === "d",
+    winColor: winnerChar !== "d" ? winnerChar : null,
+    winnerName: winnerChar !== "d" ? winnerUsername : null,
   };
   io.to(gameString).emit("endGame", resultData);
   runningGames.delete(gameString);
@@ -208,8 +212,8 @@ const joinGame = (socket, gameData) => {
   console.log(`Join request By ${joinerName} to ${gameString}`);
 
   // Assigning Colors
-  let joinerColor = "w";
-  if (gameInfo.creatorColor == "w") joinerColor = "b";
+
+  const joinerColor = gameInfo.creatorColor == "w" ? "b" : "w";
 
   /*
   const gameInfo = {
@@ -303,14 +307,15 @@ io.on("connection", (socket) => {
     if (!userInfo || !userInfo.isPlaying || !userInfo.isPlaying) {
       idToUsername.delete(socket.id);
       idToInfo.delete(socket.id);
+      console.log(`${idToUsername.size} Players Online Now.`);
       return;
     }
     if (username) console.log(`${username} disconnected.`);
-    console.log(`${idToUsername.size} Players Online Now.`);
     if (!username || !userInfo) {
       return;
     }
     unRegisterPlayer(socket.id);
+    console.log(`${idToUsername.size} Players Online Now.`);
   });
 });
 
