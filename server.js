@@ -71,7 +71,6 @@ const endGame = (gameString, winnerChar) => {
   console.log(`Ending Game ${gameString} WITH RESULT : ${winnerChar}`);
 
   const gameInfo = runningGames.get(gameString);
-  console.log(gameInfo);
   const blackName = gameInfo.blackName;
   const whiteName = gameInfo.whiteName;
 
@@ -231,12 +230,16 @@ const joinGame = (socket, gameData) => {
   };
   */
 
-  let whiteId = socket.id;
-  let blackId = gameInfo.creatorId;
-  if (socket.id != whiteId) {
-    // Swap WhiteId, And BlackId
-    [whiteId, blackId] = [blackId, whiteId];
+  let whiteId, blackId;
+
+  if (gameInfo.creatorColor == "w") {
+    whiteId = gameInfo.creatorId;
+    blackId = joinedId;
+  } else {
+    whiteId = joinedId;
+    blackId = gameInfo.creatorId;
   }
+
   const totalTimeInMillis = getMillis(gameInfo.totalTime);
   openGames.delete(gameString);
   const whiteTimer = new Timer(totalTimeInMillis);
