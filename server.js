@@ -70,12 +70,11 @@ const endGame = (gameString, winner) => {
   const blackName = gameInfo.blackName;
   const whiteName = gameInfo.whiteName;
   const { whiteId, blackId } = gameInfo;
-  const winnerName = whiteName;
-  if (winner == "b") winnerName: blackName;
+  let winnerUsername = winner === "b" ? blackName : whiteName;
   const resultData = {
-    isDraw: winner == "d" ? true : false,
-    winColor: winner == "d" ? null : winner,
-    winnerName: winner == "d" ? null : winnerName,
+    isDraw: winner === "d",
+    winColor: winner !== "d" ? winner : null,
+    winnerName: winner !== "d" ? winnerUsername : null,
   };
   io.to(gameString).emit("endGame", resultData);
   runningGames.delete(gameString);
@@ -148,8 +147,9 @@ const startGame = (gameString) => {
 
 const registerUser = (socket, userData) => {
   const { username } = userData;
+  console.log(`Register Req For ${username}`);
   const alreadyDuplicate = idToUsername.has(username);
-  if (alreadyDuplicate) {
+  if (!username || alreadyDuplicate) {
     userRegisterFailed(socket, { msg: "Name Already Taken." });
     return;
   }
@@ -159,7 +159,6 @@ const registerUser = (socket, userData) => {
 };
 
 const createGame = (socket, gameData) => {
-  console.log(`Created Game Req By ${idToUsername.get(socket.id)}`);
   const { isPublic, showEval, totalTime, timeIncrement, targetOpponent } =
     gameData;
   const username = idToUsername.get(socket.id);
@@ -301,14 +300,13 @@ io.on("connection", (socket) => {
     const username = idToUsername.get(socket.id);
     if (!username) return;
     const userInfo = idToInfo.get(socket.id);
-    if (!userInfo) {
-      idToUsername.delete(username);
+    if (!userInfo || !userInfo.isPlaying || !userInfo.isPlaying) {
+      idToUsername.delete(socket.id);
+      idToInfo.delete(socket.id);
+      return;
     }
     if (username) console.log(`${username} disconnected.`);
     console.log(`${idToUsername.size} Players Online Now.`);
-    for (let x of idToUsername.keys()) {
-      console.log(x);
-    }
     if (!username || !userInfo) {
       return;
     }
