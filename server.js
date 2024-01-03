@@ -68,17 +68,19 @@ function clearRoom(roomId) {
 }
 // WinnerChar => w, b, d
 const endGame = (gameString, winnerChar) => {
-  console.log(`Ending Game ${gameString}`);
+  console.log(`Ending Game ${gameString} WITH RESULT : ${winnerChar}`);
 
   const gameInfo = runningGames.get(gameString);
+  console.log(gameInfo);
   const blackName = gameInfo.blackName;
   const whiteName = gameInfo.whiteName;
+
   const { whiteId, blackId } = gameInfo;
   let winnerUsername = winnerChar == "b" ? blackName : whiteName;
   const resultData = {
-    isDraw: winnerChar === "d",
-    winColor: winnerChar !== "d" ? winnerChar : null,
-    winnerName: winnerChar !== "d" ? winnerUsername : null,
+    isDraw: winnerChar == "d",
+    winColor: winnerChar != "d" ? winnerChar : null,
+    winnerName: winnerChar != "d" ? winnerUsername : null,
   };
   io.to(gameString).emit("endGame", resultData);
   runningGames.delete(gameString);
@@ -231,7 +233,7 @@ const joinGame = (socket, gameData) => {
 
   let whiteId = socket.id;
   let blackId = gameInfo.creatorId;
-  if (joinerColor != whiteId) {
+  if (socket.id != whiteId) {
     // Swap WhiteId, And BlackId
     [whiteId, blackId] = [blackId, whiteId];
   }
@@ -286,8 +288,7 @@ const sendMove = (socket, moveData) => {
     endGame(gameString, "d");
     return;
   } else if (chessInstance.isCheckmate()) {
-    let winner = "w";
-    if (chessInstance.turn() == "w") winner = "b";
+    const winner = chessInstance.turn() == "w" ? "b" : "w";
     endGame(gameString, winner);
     return;
   }
