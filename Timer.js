@@ -24,7 +24,6 @@ class Timer {
   }
 
   start() {
-    console.log(`Started Color ${this.color} Timer`);
     setTimeout(this.startHelper.bind(this), KAYOTE_TIME); // Ensure proper binding of this
   }
 
@@ -49,7 +48,7 @@ class Timer {
     if (this.isRunning) {
       const elapsedTime = Date.now() - this.startTime;
       const remainingTime = this.timeLeft - elapsedTime;
-      return remainingTime >= 0 ? remainingTime : 0;
+      return remainingTime;
     }
     return this.timeLeft;
   }
@@ -64,6 +63,10 @@ class Timer {
     return timeString;
   }
 
+  isTimedOut() {
+    return this.getTimeLeft() <= 0;
+  }
+
   setTime(timeInMs) {
     this.timeLeft = timeInMs;
     this.startTime = Date.now(); // Update the start time regardless of the timer's state
@@ -71,7 +74,7 @@ class Timer {
 }
 
 function getWinnerByTime(timer1, timer2) {
-  if (!timer1.isTimedOut() && !timer2.isTimedOut) return null;
+  if (!timer1.isTimedOut() && !timer2.isTimedOut()) return null;
   const timer1LeftOverTime = timer1.getTimeLeft();
   const timer2LeftOverTime = timer2.getTimeLeft();
 

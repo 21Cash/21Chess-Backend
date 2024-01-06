@@ -4,10 +4,11 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const { PLAYERSTATUS } = require("./Enums.js");
 const { generateHash } = require("./Hash.js");
-const { Timer, getMillis } = require("./Timer.js");
+const { Timer, getMillis, getWinnerByTime } = require("./Timer.js");
 const { Chess } = require("chess.js");
 
 let PORT = process.env.PORT || 3000;
+const TIMEOUT_CHECK_INTERVAL_TIME = 2000;
 
 const app = express();
 const server = http.createServer(app);
@@ -19,12 +20,37 @@ const io = new Server(server, {
 
 app.use(cors());
 
+/* TIMEOUT CHECK FUNCTION*/
+const checkForTimeout = () => {
+  const toEndGames = []; // [{gameString, winColor}]
+
+  for (let [gameString, gameData] of runningGames) {
+    const { whiteTimer, blackTimer } = gameData;
+    const winColor = getWinnerByTime(whiteTimer, blackTimer);
+    if (winColor != null) {
+      toEndGames.push({ gameString, winColor });
+    }
+  }
+
+  for (let obj of toEndGames) {
+    const { gameString, winColor } = obj;
+    endGame(gameString, winColor);
+  }
+};
+
+// ENDS HERE
+
 const idToUsername = new Map();
 const openGames = new Map(); // GameString : {}
 const runningGames = new Map(); // GameString : {}
 const idToInfo = new Map(); // id : => {curGameString, isPlaying, }
 
 // GameString : {chessInstance, WhiteTimer, BlackTimer, WhiteId, BlackId}
+
+const timeOutCheckInterval = setInterval(
+  checkForTimeout,
+  TIMEOUT_CHECK_INTERVAL_TIME
+);
 
 // Server Methods
 
