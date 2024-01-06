@@ -35,7 +35,7 @@ const checkForTimeout = () => {
 
   for (let obj of toEndGames) {
     const { gameString, winColor } = obj;
-    endGame(gameString, winColor);
+    endGame(gameString, winColor, "Timeout");
   }
 };
 
@@ -94,7 +94,8 @@ function clearRoom(roomId) {
   }
 }
 // WinnerChar => w, b, d
-const endGame = (gameString, winnerChar) => {
+const endGame = (gameString, winnerChar, cause = null) => {
+  // Cause => Resignation, Timeout, ...
   console.log(`Ending Game ${gameString} WITH RESULT : ${winnerChar}`);
 
   const gameInfo = runningGames.get(gameString);
@@ -104,11 +105,19 @@ const endGame = (gameString, winnerChar) => {
   const whiteName = gameInfo.whiteName;
 
   const { whiteId, blackId } = gameInfo;
+
+  const resultString =
+    winnerChar == "d" ? "1/2-1/2" : winnerChar == "w" ? "1-0" : "0-1";
+
+  gameInfo.chessInstance.header("result", resultString);
+
   let winnerUsername = winnerChar == "b" ? blackName : whiteName;
   const resultData = {
     isDraw: winnerChar == "d",
     winColor: winnerChar != "d" ? winnerChar : null,
     winnerName: winnerChar != "d" ? winnerUsername : null,
+    cause,
+    pgn: gameInfo.chessInstance.pgn(),
   };
   io.to(gameString).emit("endGame", resultData);
   runningGames.delete(gameString);
@@ -205,6 +214,23 @@ const startGame = (gameString) => {
   curGame.whiteTimer.setTime(totalTimeInMs);
   curGame.blackTimer.setTime(totalTimeInMs);
 
+  const timeControlString = `${curGame.totalTimeInSecs}+${curGame.incrementTimeInSecs}`;
+  // Set Game Header
+  gameInfo.chessInstance.header(
+    "White",
+    whiteName,
+    "Black",
+    blackName,
+    "Date",
+    getCurrentDateString(),
+    "Site",
+    "21Chess.vercel.app",
+    "Event",
+    "21Chess Casual",
+    "TimeControl",
+    timeControlString
+  );
+  console.log(curGame.totalTimeInSecs);
   curGame.whiteTimer.start();
 
   io.to(gameString).emit("startGame", gameData);
@@ -328,6 +354,8 @@ const joinGame = (socket, gameData) => {
     blackId,
     whiteName,
     blackName,
+    totalTimeInSecs: gameInfo.totalTime,
+    incrementTimeInSecs: gameInfo.timeIncrement,
     totalTimeInMillis,
   });
 
@@ -363,7 +391,7 @@ const sendMove = (socket, moveData) => {
   // Check For timeouts
   if (getWinnerByTime(whiteTimer, blackTimer) != null) {
     const winChar = getWinnerByTime(whiteTimer, blackTimer);
-    endGame(gameString, winChar);
+    endGame(gameString, winChar, "Timeout");
     return;
   }
 
@@ -387,9 +415,39 @@ const sendMove = (socket, moveData) => {
     return;
   } else if (chessInstance.isCheckmate()) {
     const winner = chessInstance.turn() == "w" ? "b" : "w";
-    endGame(gameString, winner);
+    endGame(gameString, winner, "Checkmate");
     return;
   }
+};
+
+const socketDisconnect = (socket) => {
+  const username = idToUsername.get(socket.id);
+  if (!username) return;
+  const userInfo = idToInfo.get(socket.id);
+  if (!userInfo || !userInfo.isPlaying || !userInfo.isPlaying) {
+    idToUsername.delete(socket.id);
+    idToInfo.delete(socket.id);
+    console.log(`${idToUsername.size} Players Online Now.`);
+    return;
+  }
+  if (username) console.log(`${username} disconnected.`);
+  if (!username || !userInfo) {
+    return;
+  }
+  unRegisterPlayer(socket.id);
+  console.log(`${idToUsername.size} Players Online Now.`);
+};
+
+const playerResign = (socket) => {
+  const playerInfo = idToInfo.get(socket.id);
+  if (!playerInfo || !playerInfo.isPlaying) return;
+
+  const gameString = playerInfo.curGameString;
+  const gameInfo = runningGames.get(gameString);
+  if (!gameInfo) return;
+
+  const winnerColor = gameInfo.whiteId == socket.id ? "b" : "w";
+  endGame(gameString, winnerColor, "Resignation");
 };
 
 io.on("connection", (socket) => {
@@ -399,23 +457,8 @@ io.on("connection", (socket) => {
   socket.on("sendMove", (moveData) => {
     sendMove(socket, moveData);
   });
-  socket.on("disconnect", () => {
-    const username = idToUsername.get(socket.id);
-    if (!username) return;
-    const userInfo = idToInfo.get(socket.id);
-    if (!userInfo || !userInfo.isPlaying || !userInfo.isPlaying) {
-      idToUsername.delete(socket.id);
-      idToInfo.delete(socket.id);
-      console.log(`${idToUsername.size} Players Online Now.`);
-      return;
-    }
-    if (username) console.log(`${username} disconnected.`);
-    if (!username || !userInfo) {
-      return;
-    }
-    unRegisterPlayer(socket.id);
-    console.log(`${idToUsername.size} Players Online Now.`);
-  });
+  socket.on("disconnect", () => socketDisconnect(socket));
+  socket.on("resign", () => playerResign(socket));
 });
 
 server.listen(PORT, () => {
@@ -445,4 +488,15 @@ const isValidMove = (chessInstance, moveObj) => {
   return true;
 };
 
-// Debugging
+// Utils
+
+const getCurrentDateString = () => {
+  const today = new Date();
+
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0"); // Month is zero-indexed, so adding 1
+  const day = String(today.getDate()).padStart(2, "0");
+
+  const formattedDate = `${year}-${month}-${day}`;
+  return formattedDate;
+};
