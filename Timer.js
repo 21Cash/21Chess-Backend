@@ -1,25 +1,30 @@
 const KAYOTE_TIME = 200;
 
 class Timer {
-  constructor(timeLeft = 0, increment = 0) {
+  constructor(timeLeft = 0, increment = 0, _gameString, _color) {
     this.startTime = 0;
     this.timeLeft = timeLeft;
-    this.timerId = null;
     this.isRunning = false;
+    this.gameString = _gameString;
     this.increment = increment; // New property to hold the increment value
+    this.color = _color;
   }
 
   startHelper() {
-    if (!this.isRunning) {
-      this.startTime = Date.now();
-      this.timerId = setTimeout(() => {
-        this.stop();
-      }, this.timeLeft);
-      this.isRunning = true;
-    }
+    // if (!this.isRunning) {
+    //   this.startTime = Date.now();
+    //   this.timerId = setTimeout(() => {
+    //     this.stop();
+    //   }, this.timeLeft);
+    //   this.isRunning = true;
+    // }
+    if (this.isRunning) return;
+    this.startTime = Date.now();
+    this.isRunning = true;
   }
 
   start() {
+    console.log(`Started Color ${this.color} Timer`);
     setTimeout(this.startHelper.bind(this), KAYOTE_TIME); // Ensure proper binding of this
   }
 
@@ -65,6 +70,16 @@ class Timer {
   }
 }
 
+function getWinnerByTime(timer1, timer2) {
+  if (!timer1.isTimedOut() && !timer2.isTimedOut) return null;
+  const timer1LeftOverTime = timer1.getTimeLeft();
+  const timer2LeftOverTime = timer2.getTimeLeft();
+
+  // Whose time is More negative lost
+
+  return timer1LeftOverTime < timer2LeftOverTime ? timer1.color : timer2.color;
+}
+
 function minsToMillis(minutes) {
   return minutes * 60 * 1000; // 1 minute = 60 seconds = 60,000 milliseconds
 }
@@ -79,4 +94,10 @@ function getMillis(minutes, seconds = 0) {
   return millisFromMins + millisFromSecs;
 }
 
-module.exports = { Timer, minsToMillis, secsToMillis, getMillis };
+module.exports = {
+  Timer,
+  minsToMillis,
+  secsToMillis,
+  getMillis,
+  getWinnerByTime,
+};

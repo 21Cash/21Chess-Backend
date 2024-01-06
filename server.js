@@ -106,7 +106,6 @@ const setPlayingStatus = (socketId, status, gameString) => {
 
 const toggleTimer = (gameData) => {
   const { chessInstance, whiteTimer, blackTimer } = gameData;
-
   // If it was white's Turn and he made a move, then stop white Timer and start Black Timer
   if (chessInstance.turn() == "b") {
     whiteTimer.stop();
@@ -161,6 +160,9 @@ const startGame = (gameString) => {
   if (!gameInfo) return;
   const whiteName = idToUsername.get(gameInfo.whiteId);
   const blackName = idToUsername.get(gameInfo.blackId);
+
+  const totalTimeInMs = runningGames.get(gameString).totalTimeInMillis;
+
   const gameData = {
     whiteName: whiteName,
     blackName: blackName,
@@ -171,7 +173,10 @@ const startGame = (gameString) => {
 
   // Start Timers
   const curGame = runningGames.get(gameString);
-  curGame.blackTimer.start();
+  curGame.whiteTimer.setTime(totalTimeInMs);
+  curGame.blackTimer.setTime(totalTimeInMs);
+  curGame.blackTimer.stop();
+
   curGame.whiteTimer.start();
   io.to(gameString).emit("startGame", gameData);
 };
@@ -271,8 +276,19 @@ const joinGame = (socket, gameData) => {
   const incrementAmountInMillis = getMillis(0, gameInfo.timeIncrement);
   console.log(`Started Game INC TIME(ms) : ${incrementAmountInMillis}`);
   openGames.delete(gameString);
-  const whiteTimer = new Timer(totalTimeInMillis, incrementAmountInMillis);
-  const blackTimer = new Timer(totalTimeInMillis, incrementAmountInMillis);
+
+  const whiteTimer = new Timer(
+    totalTimeInMillis,
+    incrementAmountInMillis,
+    gameString,
+    "w"
+  );
+  const blackTimer = new Timer(
+    totalTimeInMillis,
+    incrementAmountInMillis,
+    gameString,
+    "b"
+  );
 
   const whiteName = idToUsername.get(whiteId);
   const blackName = idToUsername.get(blackId);
@@ -284,9 +300,8 @@ const joinGame = (socket, gameData) => {
     blackId,
     whiteName,
     blackName,
+    totalTimeInMillis,
   });
-
-  runningGames.get(gameString).whiteTimer.start();
 
   const joinedGameInfo = {
     ...gameInfo,
