@@ -24,7 +24,7 @@ class Timer {
   }
 
   start() {
-    setTimeout(this.startHelper.bind(this), KAYOTE_TIME); // Ensure proper binding of this
+    this.timerId = setTimeout(this.startHelper.bind(this), KAYOTE_TIME); // Ensure proper binding of this
   }
 
   stop() {
@@ -34,6 +34,7 @@ class Timer {
       this.timeLeft -= elapsedTime;
       this.timeLeft += this.increment; // Increment the timeLeft by the increment value
       this.isRunning = false;
+      clearTimeout(this.timerId);
     }
   }
 

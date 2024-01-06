@@ -21,6 +21,7 @@ const io = new Server(server, {
 app.use(cors());
 
 /* TIMEOUT CHECK FUNCTION*/
+
 const checkForTimeout = () => {
   const toEndGames = []; // [{gameString, winColor}]
 
@@ -97,6 +98,8 @@ const endGame = (gameString, winnerChar) => {
   console.log(`Ending Game ${gameString} WITH RESULT : ${winnerChar}`);
 
   const gameInfo = runningGames.get(gameString);
+  if (!gameInfo) return; // Already Ended
+
   const blackName = gameInfo.blackName;
   const whiteName = gameInfo.whiteName;
 
@@ -201,9 +204,9 @@ const startGame = (gameString) => {
   const curGame = runningGames.get(gameString);
   curGame.whiteTimer.setTime(totalTimeInMs);
   curGame.blackTimer.setTime(totalTimeInMs);
-  curGame.blackTimer.stop();
 
   curGame.whiteTimer.start();
+
   io.to(gameString).emit("startGame", gameData);
 };
 // Emits End
@@ -300,7 +303,6 @@ const joinGame = (socket, gameData) => {
 
   const totalTimeInMillis = getMillis(gameInfo.totalTime);
   const incrementAmountInMillis = getMillis(0, gameInfo.timeIncrement);
-  console.log(`Started Game INC TIME(ms) : ${incrementAmountInMillis}`);
   openGames.delete(gameString);
 
   const whiteTimer = new Timer(
@@ -352,6 +354,18 @@ const sendMove = (socket, moveData) => {
   if (chessInstance.turn() != color) return;
   if (socket.id != whiteId && socket.id != blackId) return;
   if (!isValidMove(chessInstance, moveObj)) return;
+
+  if (chessInstance.history().length <= 1) {
+    blackTimer.setTime(gameData.totalTimeInMillis);
+    whiteTimer.setTime(gameData.totalTimeInMillis);
+  }
+
+  // Check For timeouts
+  if (getWinnerByTime(whiteTimer, blackTimer) != null) {
+    const winChar = getWinnerByTime(whiteTimer, blackTimer);
+    endGame(gameString, winChar);
+    return;
+  }
 
   // Change Timer
   toggleTimer(gameData);
