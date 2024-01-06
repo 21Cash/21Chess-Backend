@@ -1,12 +1,15 @@
+const KAYOTE_TIME = 200;
+
 class Timer {
-  constructor(timeLeft = 0) {
+  constructor(timeLeft = 0, increment = 0) {
     this.startTime = 0;
     this.timeLeft = timeLeft;
     this.timerId = null;
     this.isRunning = false;
+    this.increment = increment; // New property to hold the increment value
   }
 
-  start() {
+  startHelper() {
     if (!this.isRunning) {
       this.startTime = Date.now();
       this.timerId = setTimeout(() => {
@@ -16,11 +19,16 @@ class Timer {
     }
   }
 
+  start() {
+    setTimeout(this.startHelper.bind(this), KAYOTE_TIME); // Ensure proper binding of this
+  }
+
   stop() {
     if (this.isRunning) {
       clearTimeout(this.timerId);
       const elapsedTime = Date.now() - this.startTime;
       this.timeLeft -= elapsedTime;
+      this.timeLeft += this.increment; // Increment the timeLeft by the increment value
       this.isRunning = false;
     }
   }
@@ -39,6 +47,21 @@ class Timer {
       return remainingTime >= 0 ? remainingTime : 0;
     }
     return this.timeLeft;
+  }
+
+  getTimeLeftString() {
+    const remainingTime = this.getTimeLeft();
+    const minutes = Math.floor(remainingTime / 60000);
+    const seconds = ((remainingTime % 60000) / 1000)
+      .toFixed(0)
+      .padStart(2, "0");
+    const timeString = `${minutes}:${seconds}`;
+    return timeString;
+  }
+
+  setTime(timeInMs) {
+    this.timeLeft = timeInMs;
+    this.startTime = Date.now(); // Update the start time regardless of the timer's state
   }
 }
 
