@@ -178,7 +178,8 @@ const moveMessage = (
   moveObj,
   color,
   blackTime,
-  whiteTime
+  whiteTime,
+  fen
 ) => {
   const name = idToUsername[senderSocket.id];
   const moveData = {
@@ -189,6 +190,7 @@ const moveMessage = (
     color,
     blackTime,
     whiteTime,
+    fen,
   };
   io.to(gameString).emit("moveMessage", moveData);
 };
@@ -399,15 +401,16 @@ const sendMove = (socket, moveData) => {
   toggleTimer(gameData);
 
   // Move if valid Move
-  chessInstance.move(moveObj);
+  const fullMoveObj = chessInstance.move(moveObj);
 
   moveMessage(
     socket,
     gameString,
-    moveObj,
+    fullMoveObj,
     color,
     whiteTimer.getTimeLeft(),
-    blackTimer.getTimeLeft()
+    blackTimer.getTimeLeft(),
+    chessInstance.fen()
   );
 
   if (chessInstance.isDraw()) {
