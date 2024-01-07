@@ -6,6 +6,7 @@ const { PLAYERSTATUS } = require("./Enums.js");
 const { generateHash } = require("./Hash.js");
 const { Timer, getMillis, getWinnerByTime } = require("./Timer.js");
 const { Chess } = require("chess.js");
+const { copyFileSync } = require("fs");
 
 let PORT = process.env.PORT || 3000;
 const TIMEOUT_CHECK_INTERVAL_TIME = 2000;
@@ -453,8 +454,35 @@ const playerResign = (socket) => {
   endGame(gameString, winnerColor, "Resignation");
 };
 
+const registerSpectator = (socket, toJoinGameData) => {
+  const { gameString } = toJoinGameData;
+  const username = idToUsername.get(socket.id);
+  const game = runningGames.get(gameString);
+  console.log(`Spec req By ${username} For ${gameString}`);
+  if (!game || !username || !gameString) {
+    socket.emit("spectatorRegisterFailed", {
+      msg: `${!username ? `User not Resgistered.` : `Invalid Code`}`,
+    });
+    return;
+  }
+  socket.join(gameString);
+
+  const gameData = {
+    whiteName: game.whiteName,
+    blackName: game.blackName,
+    gameString,
+    fen: game.chessInstance.fen(),
+    whiteTime: game.whiteTimer.getTimeLeft(),
+    blackTime: game.blackTimer.getTimeLeft(),
+  };
+  socket.emit("spectatorRegistered", gameData);
+};
+
 io.on("connection", (socket) => {
   socket.on("registerUser", (userData) => registerUser(socket, userData));
+  socket.on("registerSpectator", (toJoinGameData) =>
+    registerSpectator(socket, toJoinGameData)
+  );
   socket.on("createGame", (data) => createGame(socket, data));
   socket.on("joinGame", (gameData) => joinGame(socket, gameData));
   socket.on("sendMove", (moveData) => {
