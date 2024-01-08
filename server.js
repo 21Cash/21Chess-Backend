@@ -2,11 +2,9 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const { PLAYERSTATUS } = require("./Enums.js");
 const { generateHash } = require("./Hash.js");
 const { Timer, getMillis, getWinnerByTime } = require("./Timer.js");
 const { Chess } = require("chess.js");
-const { copyFileSync } = require("fs");
 
 let PORT = process.env.PORT || 3000;
 const TIMEOUT_CHECK_INTERVAL_TIME = 2000;
@@ -41,12 +39,12 @@ const checkForTimeout = () => {
 };
 
 // ENDS HERE
-
+const usernameToSocket = new Map();
 const idToUsername = new Map();
 const openGames = new Map(); // GameString : {}
 const runningGames = new Map(); // GameString : {}
-const idToInfo = new Map(); // id : => {curGameString, isPlaying, }
-
+const idToInfo = new Map(); // id : => {curGameString, isPlaying}
+const challengeMap = new Map(); // {challengeString : {player1, player2, totalTimeInSecs, incrementTimeInSecs}}
 // GameString : {chessInstance, WhiteTimer, BlackTimer, WhiteId, BlackId}
 
 const timeOutCheckInterval = setInterval(
@@ -56,6 +54,133 @@ const timeOutCheckInterval = setInterval(
 
 // Server Methods
 
+const startGame = (gameString) => {
+  const gameInfo = runningGames.get(gameString);
+  if (!gameInfo) return;
+  const whiteName = idToUsername.get(gameInfo.whiteId);
+  const blackName = idToUsername.get(gameInfo.blackId);
+
+  const totalTimeInSecs = runningGames.get(gameString).totalTimeInSecs;
+  const incrementTimeInSecs = runningGames.get(gameString).incrementTimeInSecs;
+  const totalTimeInMs = getMillis(0, totalTimeInSecs);
+
+  const gameData = {
+    whiteName: whiteName,
+    blackName: blackName,
+    totalTimeInSecs,
+    incrementTimeInSecs,
+  };
+
+  setPlayingStatus(gameInfo.whiteId, true, gameString);
+  setPlayingStatus(gameInfo.blackId, true, gameString);
+
+  // Start Timers
+  const curGame = runningGames.get(gameString);
+  curGame.whiteTimer.setTime(totalTimeInMs);
+  curGame.blackTimer.setTime(totalTimeInMs);
+
+  const timeControlString = `${curGame.totalTimeInSecs}+${curGame.incrementTimeInSecs}`;
+  // Set Game Header
+  gameInfo.chessInstance.header(
+    "White",
+    whiteName,
+    "Black",
+    blackName,
+    "Date",
+    getCurrentDateString(),
+    "Site",
+    "21Chess.vercel.app",
+    "Event",
+    "21Chess Casual",
+    "TimeControl",
+    timeControlString
+  );
+  curGame.whiteTimer.start();
+
+  console.log(`Starting Game : ${gameString}`);
+  io.to(gameString).emit("startGame", gameData);
+};
+
+// Server Method to Start Game Between 2 Players
+const serverStartGame = (
+  socketId1,
+  socketId2,
+  totalTimeInSecs,
+  incrementTimeInSecs
+) => {
+  const name1 = idToUsername.get(socketId1);
+  const name2 = idToUsername.get(socketId2);
+  if (!name1 || !name2) {
+    console.error(`INTERNAL SERVER ERROR, Invalid Socket Id(s).`);
+    return;
+  }
+
+  const player1Color = Math.random() < 0.5 ? "w" : "b";
+  const player2Color = player1Color == "w" ? "b" : "w";
+
+  const whiteId = player1Color == "w" ? socketId1 : socketId2;
+  const blackId = player2Color == "b" ? socketId2 : socketId1;
+
+  console.log(`TIME DEBUG`);
+  console.log(totalTimeInSecs);
+  const totalTimeInMillis = getMillis(0, totalTimeInSecs);
+  const incrementTimeInMillis = getMillis(0, incrementTimeInSecs);
+  console.log(totalTimeInMillis);
+  const gameString = generateHash(name1);
+
+  const whiteTimer = new Timer(
+    totalTimeInMillis,
+    incrementTimeInMillis,
+    gameString,
+    "w"
+  );
+  const blackTimer = new Timer(
+    totalTimeInMillis,
+    incrementTimeInMillis,
+    gameString,
+    "b"
+  );
+
+  runningGames.set(gameString, {
+    chessInstance: new Chess(),
+    whiteTimer,
+    blackTimer,
+    whiteId,
+    blackId,
+    whiteName: idToUsername.get(whiteId),
+    blackName: idToUsername.get(blackId),
+    totalTimeInSecs,
+    incrementTimeInSecs,
+    totalTimeInMillis,
+  });
+
+  const player1GameInfo = {
+    myColor: player1Color,
+    opponentName: idToUsername.get(socketId2),
+    gameString,
+    totalTimeInSecs,
+    incrementTimeInSecs,
+  };
+  const player2GameInfo = {
+    myColor: player2Color,
+    opponentName: idToUsername.get(socketId1),
+    gameString,
+    totalTimeInSecs,
+    incrementTimeInSecs,
+  };
+
+  const socketRef1 = usernameToSocket.get(idToUsername.get(socketId1));
+  const socketRef2 = usernameToSocket.get(idToUsername.get(socketId2));
+
+  socketRef1.join(gameString);
+  socketRef2.join(gameString);
+  console.log(`Server Game Started ${gameString}`);
+
+  io.to(socketId1).emit("ServerGame", player1GameInfo);
+  io.to(socketId2).emit("ServerGame", player2GameInfo);
+  setTimeout(() => startGame(gameString), 1000);
+};
+
 const unRegisterPlayer = (socketId) => {
   // i.e Disconnected
   const inGame =
@@ -63,11 +188,14 @@ const unRegisterPlayer = (socketId) => {
   const userInfo = idToInfo.get(socketId);
   const gameString = userInfo.curGameString;
 
+  const username = idToUsername.get(socketId);
   // Game Hasnt begun
   if (openGames.has(gameString)) {
     openGames.delete(gameString);
+
     idToUsername.delete(socketId);
     idToInfo.delete(socketId);
+    usernameToSocket.delete(username);
     return;
   }
 
@@ -78,6 +206,7 @@ const unRegisterPlayer = (socketId) => {
     if (socketId == gameInfo.whiteId) winColor = "b";
     idToUsername.delete(socketId);
     idToInfo.delete(socketId);
+    usernameToSocket.delete(username);
     endGame(gameString, winColor);
   }
 };
@@ -196,60 +325,24 @@ const moveMessage = (
   io.to(gameString).emit("moveMessage", moveData);
 };
 
-const startGame = (gameString) => {
-  const gameInfo = runningGames.get(gameString);
-  if (!gameInfo) return;
-  const whiteName = idToUsername.get(gameInfo.whiteId);
-  const blackName = idToUsername.get(gameInfo.blackId);
-
-  const totalTimeInMs = runningGames.get(gameString).totalTimeInMillis;
-
-  const gameData = {
-    whiteName: whiteName,
-    blackName: blackName,
-  };
-
-  setPlayingStatus(gameInfo.whiteId, true, gameString);
-  setPlayingStatus(gameInfo.blackId, true, gameString);
-
-  // Start Timers
-  const curGame = runningGames.get(gameString);
-  curGame.whiteTimer.setTime(totalTimeInMs);
-  curGame.blackTimer.setTime(totalTimeInMs);
-
-  const timeControlString = `${curGame.totalTimeInSecs}+${curGame.incrementTimeInSecs}`;
-  // Set Game Header
-  gameInfo.chessInstance.header(
-    "White",
-    whiteName,
-    "Black",
-    blackName,
-    "Date",
-    getCurrentDateString(),
-    "Site",
-    "21Chess.vercel.app",
-    "Event",
-    "21Chess Casual",
-    "TimeControl",
-    timeControlString
-  );
-  console.log(curGame.totalTimeInSecs);
-  curGame.whiteTimer.start();
-
-  io.to(gameString).emit("startGame", gameData);
-};
 // Emits End
 
 const registerUser = (socket, userData) => {
   const { username } = userData;
   console.log(`Register Req For ${username}`);
-  const alreadyDuplicate = idToUsername.has(username);
+  const alreadyDuplicate = usernameToSocket.has(username);
   if (!username || alreadyDuplicate) {
     userRegisterFailed(socket, { msg: "Name Already Taken." });
     return;
   }
+
   idToUsername.set(socket.id, username);
+  idToInfo.set(socket.id, {
+    curGameString: "",
+    isPlaying: false,
+  });
   console.log(`${username} Registered`);
+  usernameToSocket.set(username, socket);
   userRegistered(socket, { username });
 };
 
@@ -263,8 +356,8 @@ const createGame = (socket, gameData) => {
     creator: username,
     isPublic: isPublic,
     showEval: showEval,
-    totalTime: totalTime,
-    timeIncrement: timeIncrement,
+    totalTime: totalTime, // In Minutes
+    timeIncrement: timeIncrement, // In Secs
     targetOpponent: targetOpponent,
     gameString: gameString,
     creatorColor: Math.random() < 0.5 ? "w" : "b",
@@ -330,7 +423,7 @@ const joinGame = (socket, gameData) => {
     blackId = gameInfo.creatorId;
   }
 
-  const totalTimeInMillis = getMillis(gameInfo.totalTime);
+  const totalTimeInMillis = getMillis(gameInfo.totalTime, 0);
   const incrementAmountInMillis = getMillis(0, gameInfo.timeIncrement);
   openGames.delete(gameString);
 
@@ -349,6 +442,7 @@ const joinGame = (socket, gameData) => {
 
   const whiteName = idToUsername.get(whiteId);
   const blackName = idToUsername.get(blackId);
+  const totalTimeInSecs = 60 * gameInfo.totalTime;
   runningGames.set(gameString, {
     chessInstance: new Chess(),
     whiteTimer,
@@ -357,15 +451,17 @@ const joinGame = (socket, gameData) => {
     blackId,
     whiteName,
     blackName,
-    totalTimeInSecs: gameInfo.totalTime,
+    totalTimeInSecs,
     incrementTimeInSecs: gameInfo.timeIncrement,
     totalTimeInMillis,
   });
 
   const joinedGameInfo = {
-    ...gameInfo,
+    gameString,
     myColor: joinerColor,
     opponentName: gameInfo.creator,
+    totalTimeInSecs,
+    incrementTimeInSecs: gameInfo.timeIncrement,
   };
 
   setPlayingStatus(socket.id, true, gameString);
@@ -377,14 +473,23 @@ const joinGame = (socket, gameData) => {
 };
 
 const sendMove = (socket, moveData) => {
-  if (!moveData || !moveData.gameString) return;
-  const { gameString, moveObj, color } = moveData;
+  if (!moveData) return;
+  const { moveObj, color } = moveData;
+  const gameString = idToInfo.get(socket.id).curGameString;
+  if (!gameString) {
+    console.error(`Internal Error Game String Not Found.`);
+    return;
+  }
   const gameData = runningGames.get(gameString);
   if (!gameData) return;
   const { chessInstance, whiteTimer, blackTimer, whiteId, blackId } = gameData;
   if (chessInstance.turn() != color) return;
   if (socket.id != whiteId && socket.id != blackId) return;
-  if (!isValidMove(chessInstance, moveObj)) return;
+
+  if (!isValidMove(chessInstance, moveObj)) {
+    console.log(`Invalid Move Sent by : ${idToUsername.get(socket.id)}`);
+    return;
+  }
 
   if (chessInstance.history().length <= 1) {
     blackTimer.setTime(gameData.totalTimeInMillis);
@@ -429,8 +534,10 @@ const socketDisconnect = (socket) => {
   if (!username) return;
   const userInfo = idToInfo.get(socket.id);
   if (!userInfo || !userInfo.isPlaying || !userInfo.isPlaying) {
+    const name = idToUsername.get(socket.id);
     idToUsername.delete(socket.id);
     idToInfo.delete(socket.id);
+    usernameToSocket.delete(name);
     console.log(`${idToUsername.size} Players Online Now.`);
     return;
   }
@@ -478,6 +585,51 @@ const registerSpectator = (socket, toJoinGameData) => {
   socket.emit("spectatorRegistered", gameData);
 };
 
+const gameRequest = (socket, data) => {
+  if (!data || !data.targetName) return;
+  const { targetName, totalTimeInSecs, incrementTimeInSecs } = data;
+  const validTargetName = usernameToSocket.has(targetName);
+  const senderName = idToUsername.get(socket.id);
+  const senderId = socket.id;
+  if (!validTargetName || !senderName) return;
+
+  const challengeString = generateHash(senderName);
+
+  const targetSocket = usernameToSocket.get(targetName);
+  const reqData = {
+    senderName,
+    totalTimeInSecs,
+    incrementTimeInSecs,
+    challengeString,
+    player1: senderName,
+    player2: targetName,
+  };
+  challengeMap.set(challengeString, reqData);
+  // Expire the Challenge in 15 seconds
+  setTimeout(() => {
+    if (challengeMap.get(challengeString) != null) {
+      challengeMap.delete(challengeString);
+    }
+  }, 15000);
+  targetSocket.emit("gameRequest", reqData);
+};
+
+const gameRequestAccept = (socket, data) => {
+  if (!data || !data.challengeString) return;
+  const { challengeString } = data;
+
+  const challengeData = challengeMap.get(challengeString);
+  if (challengeData == null) return;
+  const { player1, player2, totalTimeInSecs, incrementTimeInSecs } =
+    challengeData;
+  serverStartGame(
+    usernameToSocket.get(player1).id,
+    usernameToSocket.get(player2).id,
+    totalTimeInSecs,
+    incrementTimeInSecs
+  );
+};
+
 io.on("connection", (socket) => {
   socket.on("registerUser", (userData) => registerUser(socket, userData));
   socket.on("registerSpectator", (toJoinGameData) =>
@@ -490,6 +642,10 @@ io.on("connection", (socket) => {
   });
   socket.on("disconnect", () => socketDisconnect(socket));
   socket.on("resign", () => playerResign(socket));
+  socket.on("gameRequest", (reqData) => gameRequest(socket, reqData));
+  socket.on("gameRequestAccept", (reqData) =>
+    gameRequestAccept(socket, reqData)
+  );
 });
 
 server.listen(PORT, () => {
