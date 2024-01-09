@@ -121,11 +121,8 @@ const serverStartGame = (
   const whiteId = player1Color == "w" ? socketId1 : socketId2;
   const blackId = player2Color == "b" ? socketId2 : socketId1;
 
-  console.log(`TIME DEBUG`);
-  console.log(totalTimeInSecs);
   const totalTimeInMillis = getMillis(0, totalTimeInSecs);
   const incrementTimeInMillis = getMillis(0, incrementTimeInSecs);
-  console.log(totalTimeInMillis);
   const gameString = generateHash(name1);
 
   const whiteTimer = new Timer(
@@ -284,6 +281,46 @@ const toggleTimer = (gameData) => {
   }
 };
 
+// Server method to make game req
+const makeGameRequest = (
+  fromName,
+  toName,
+  totalTimeInSecs,
+  incrementTimeInSecs
+) => {
+  const player1IsPlaying = idToInfo.get(
+    usernameToSocket.get(fromName).id
+  ).isPlaying;
+  const player2IsPlaying = idToInfo.get(
+    usernameToSocket.get(toName).id
+  ).isPlaying;
+
+  if (player1IsPlaying || player2IsPlaying) {
+    console.log(`Game Req Failed between ${fromName} and ${toName}`);
+    return;
+  }
+
+  const challengeString = generateHash(fromName);
+
+  const targetSocket = usernameToSocket.get(toName);
+  const reqData = {
+    senderName: fromName,
+    totalTimeInSecs,
+    incrementTimeInSecs,
+    challengeString,
+    player1: fromName,
+    player2: toName,
+  };
+  challengeMap.set(challengeString, reqData);
+  // Expire the Challenge in 15 seconds
+  setTimeout(() => {
+    if (challengeMap.get(challengeString) != null) {
+      challengeMap.delete(challengeString);
+    }
+  }, 15000);
+  targetSocket.emit("gameRequest", reqData);
+};
+
 // Server Methods Ends
 
 // Emits
@@ -349,7 +386,15 @@ const registerUser = (socket, userData) => {
 const createGame = (socket, gameData) => {
   const { isPublic, showEval, totalTime, timeIncrement, targetOpponent } =
     gameData;
+
   const username = idToUsername.get(socket.id);
+  if (!username) return;
+
+  if (targetOpponent != "" && usernameToSocket.has(targetOpponent)) {
+    // Make Game req
+    makeGameRequest(username, targetOpponent, totalTime * 60, timeIncrement);
+    return;
+  }
 
   const gameString = generateHash(username);
   const gameInfo = {
@@ -562,9 +607,20 @@ const playerResign = (socket) => {
 };
 
 const registerSpectator = (socket, toJoinGameData) => {
-  const { gameString } = toJoinGameData;
+  let { gameString } = toJoinGameData;
   const username = idToUsername.get(socket.id);
-  const game = runningGames.get(gameString);
+  let game = runningGames.get(gameString);
+
+  if (!game) {
+    // trying to spectate Player
+    const reqSocket = usernameToSocket.get(gameString);
+    if (reqSocket) {
+      const reqUserGameString = idToInfo.get(reqSocket.id).curGameString;
+      if (reqUserGameString != "") gameString = reqUserGameString;
+      game = runningGames.get(reqUserGameString);
+    }
+  }
+
   console.log(`Spec req By ${username} For ${gameString}`);
   if (!game || !username || !gameString) {
     socket.emit("spectatorRegisterFailed", {
@@ -593,25 +649,7 @@ const gameRequest = (socket, data) => {
   const senderId = socket.id;
   if (!validTargetName || !senderName) return;
 
-  const challengeString = generateHash(senderName);
-
-  const targetSocket = usernameToSocket.get(targetName);
-  const reqData = {
-    senderName,
-    totalTimeInSecs,
-    incrementTimeInSecs,
-    challengeString,
-    player1: senderName,
-    player2: targetName,
-  };
-  challengeMap.set(challengeString, reqData);
-  // Expire the Challenge in 15 seconds
-  setTimeout(() => {
-    if (challengeMap.get(challengeString) != null) {
-      challengeMap.delete(challengeString);
-    }
-  }, 15000);
-  targetSocket.emit("gameRequest", reqData);
+  makeGameRequest(senderName, targetName, totalTimeInSecs, incrementTimeInSecs);
 };
 
 const gameRequestAccept = (socket, data) => {
@@ -628,6 +666,8 @@ const gameRequestAccept = (socket, data) => {
     totalTimeInSecs,
     incrementTimeInSecs
   );
+
+  challengeMap.delete(challengeString);
 };
 
 io.on("connection", (socket) => {
