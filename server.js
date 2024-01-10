@@ -5,6 +5,7 @@ const cors = require("cors");
 const { generateHash } = require("./Hash.js");
 const { Timer, getMillis, getWinnerByTime } = require("./Timer.js");
 const { Chess } = require("chess.js");
+const { timeStamp } = require("console");
 
 let PORT = process.env.PORT || 3000;
 const TIMEOUT_CHECK_INTERVAL_TIME = 2000;
@@ -69,6 +70,7 @@ const startGame = (gameString) => {
     blackName: blackName,
     totalTimeInSecs,
     incrementTimeInSecs,
+    gameString,
   };
 
   setPlayingStatus(gameInfo.whiteId, true, gameString);
@@ -210,6 +212,7 @@ const unRegisterPlayer = (socketId) => {
 
 // Make All Room Members Leave the Room
 function clearRoom(roomId) {
+  console.log(`Clearing Room : ${roomId}`);
   const room = io.sockets.adapter.rooms.get(roomId);
   if (room) {
     for (const socketId of room) {
@@ -254,7 +257,7 @@ const endGame = (gameString, winnerChar, cause = null) => {
   setPlayingStatus(blackId, false);
 
   // Clear Room
-  clearRoom(gameString);
+  setTimeout(() => clearRoom(gameString), 60000); // delay Room Clear by 30 Secs
 };
 
 const setPlayingStatus = (socketId, status, gameString) => {
@@ -378,6 +381,8 @@ const registerUser = (socket, userData) => {
     curGameString: "",
     isPlaying: false,
   });
+
+  socket.join("Global");
   console.log(`${username} Registered`);
   usernameToSocket.set(username, socket);
   userRegistered(socket, { username });
@@ -591,6 +596,7 @@ const socketDisconnect = (socket) => {
     return;
   }
   unRegisterPlayer(socket.id);
+  socket.leave("Global");
   console.log(`${idToUsername.size} Players Online Now.`);
 };
 
@@ -670,6 +676,21 @@ const gameRequestAccept = (socket, data) => {
   challengeMap.delete(challengeString);
 };
 
+const sendChatMessage = (socket, msgData) => {
+  if (!msgData || !msgData.roomName || !msgData.msg) return;
+  const { roomName, msg } = msgData;
+  const username = idToUsername.get(socket.id);
+  const roomExists = io.sockets.adapter.rooms.has(roomName);
+  if (!roomExists) return;
+
+  io.to(roomName).emit("chatMessage", {
+    roomName,
+    sender: username,
+    msg,
+    timeStamp: Date.now,
+  });
+};
+
 io.on("connection", (socket) => {
   socket.on("registerUser", (userData) => registerUser(socket, userData));
   socket.on("registerSpectator", (toJoinGameData) =>
@@ -686,6 +707,7 @@ io.on("connection", (socket) => {
   socket.on("gameRequestAccept", (reqData) =>
     gameRequestAccept(socket, reqData)
   );
+  socket.on("sendChatMessage", (msgData) => sendChatMessage(socket, msgData));
 });
 
 server.listen(PORT, () => {
