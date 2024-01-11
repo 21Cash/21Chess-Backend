@@ -234,6 +234,10 @@ const endGame = (gameString, winnerChar, cause = null) => {
   const blackName = gameInfo.blackName;
   const whiteName = gameInfo.whiteName;
 
+  console.log(
+    `WINCHAR : ${winnerChar} BLACKNAME : ${blackName}, WHITENAME : ${whiteName}`
+  );
+
   const { whiteId, blackId } = gameInfo;
 
   const resultString =
@@ -347,8 +351,8 @@ const moveMessage = (
   gameString,
   moveObj,
   color,
-  blackTime,
   whiteTime,
+  blackTime,
   fen
 ) => {
   const name = idToUsername[senderSocket.id];
@@ -536,6 +540,13 @@ const sendMove = (socket, moveData) => {
   if (chessInstance.turn() != color) return;
   if (socket.id != whiteId && socket.id != blackId) return;
 
+  const senderName = idToUsername.get(socket.id);
+  const senderColor = gameData.whiteName == senderName ? "w" : "b";
+  if (chessInstance.turn() != senderColor) {
+    console.log(`Move Failed. Username Match failed.`);
+    return;
+  }
+
   if (!isValidMove(chessInstance, moveObj)) {
     console.log(`Invalid Move Sent by : ${idToUsername.get(socket.id)}`);
     return;
@@ -553,11 +564,11 @@ const sendMove = (socket, moveData) => {
     return;
   }
 
-  // Change Timer
-  toggleTimer(gameData);
-
   // Move if valid Move
   const fullMoveObj = chessInstance.move(moveObj);
+
+  // Change Timer
+  toggleTimer(gameData);
 
   moveMessage(
     socket,
@@ -725,16 +736,22 @@ app.get("/serverInfo", (req, res) => {
 });
 
 const isValidMove = (chessInstance, moveObj) => {
-  const gameCopy = new Chess(); // Create a new instance
-  gameCopy.load(chessInstance.fen()); // Load the position from the original instance
+  try {
+    const gameCopy = new Chess(); // Create a new instance
+    gameCopy.load(chessInstance.fen()); // Load the position from the original instance
 
-  const move = gameCopy.move(moveObj);
+    const move = gameCopy.move(moveObj);
 
-  if (move === null) {
-    console.log("Invalid Move");
+    if (move === null) {
+      console.log("Invalid Move");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.log(`Error Occured`);
     return false;
   }
-  return true;
+  return false;
 };
 
 // Utils

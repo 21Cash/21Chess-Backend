@@ -81,7 +81,10 @@ function getWinnerByTime(timer1, timer2) {
 
   // Whose time is More negative lost
 
-  return timer1LeftOverTime < timer2LeftOverTime ? timer1.color : timer2.color;
+  const winChar =
+    timer1LeftOverTime < timer2LeftOverTime ? timer2.color : timer1.color;
+  console.log(`Win CHAR : ${winChar}`);
+  return winChar;
 }
 
 function minsToMillis(minutes) {
