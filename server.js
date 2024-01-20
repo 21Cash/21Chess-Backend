@@ -71,6 +71,7 @@ const startGame = (gameString) => {
     totalTimeInSecs,
     incrementTimeInSecs,
     gameString,
+    evalGame: gameInfo.evalGame,
   };
 
   setPlayingStatus(gameInfo.whiteId, true, gameString);
@@ -108,7 +109,8 @@ const serverStartGame = (
   socketId1,
   socketId2,
   totalTimeInSecs,
-  incrementTimeInSecs
+  incrementTimeInSecs,
+  evalGame = false
 ) => {
   const name1 = idToUsername.get(socketId1);
   const name2 = idToUsername.get(socketId2);
@@ -151,6 +153,7 @@ const serverStartGame = (
     totalTimeInSecs,
     incrementTimeInSecs,
     totalTimeInMillis,
+    evalGame,
   });
 
   const player1GameInfo = {
@@ -159,6 +162,7 @@ const serverStartGame = (
     gameString,
     totalTimeInSecs,
     incrementTimeInSecs,
+    evalGame,
   };
   const player2GameInfo = {
     myColor: player2Color,
@@ -166,6 +170,7 @@ const serverStartGame = (
     gameString,
     totalTimeInSecs,
     incrementTimeInSecs,
+    evalGame,
   };
 
   const socketRef1 = usernameToSocket.get(idToUsername.get(socketId1));
@@ -293,7 +298,8 @@ const makeGameRequest = (
   fromName,
   toName,
   totalTimeInSecs,
-  incrementTimeInSecs
+  incrementTimeInSecs,
+  evalGame = false
 ) => {
   const player1IsPlaying = idToInfo.get(
     usernameToSocket.get(fromName).id
@@ -317,6 +323,7 @@ const makeGameRequest = (
     challengeString,
     player1: fromName,
     player2: toName,
+    evalGame,
   };
   challengeMap.set(challengeString, reqData);
   // Expire the Challenge in 15 seconds
@@ -356,6 +363,7 @@ const moveMessage = (
   fen
 ) => {
   const name = idToUsername[senderSocket.id];
+  const { whiteName, blackName } = runningGames.get(gameString);
   const moveData = {
     senderId: senderSocket.id,
     gameString,
@@ -364,6 +372,8 @@ const moveMessage = (
     color,
     blackTime,
     whiteTime,
+    whiteName,
+    blackName,
     fen,
   };
   io.to(gameString).emit("moveMessage", moveData);
@@ -395,13 +405,22 @@ const registerUser = (socket, userData) => {
 const createGame = (socket, gameData) => {
   const { isPublic, showEval, totalTime, timeIncrement, targetOpponent } =
     gameData;
+  let evalGame = false;
+  if (gameData.evalGame != null && gameData.evalGame)
+    evalGame = gameData.evalGame;
 
   const username = idToUsername.get(socket.id);
   if (!username) return;
 
   if (targetOpponent != "" && usernameToSocket.has(targetOpponent)) {
     // Make Game req
-    makeGameRequest(username, targetOpponent, totalTime * 60, timeIncrement);
+    makeGameRequest(
+      username,
+      targetOpponent,
+      totalTime * 60,
+      timeIncrement,
+      evalGame
+    );
     return;
   }
 
@@ -416,6 +435,7 @@ const createGame = (socket, gameData) => {
     gameString: gameString,
     creatorColor: Math.random() < 0.5 ? "w" : "b",
     creatorId: socket.id,
+    evalGame,
   };
   openGames.set(gameString, gameInfo);
 
@@ -497,6 +517,9 @@ const joinGame = (socket, gameData) => {
   const whiteName = idToUsername.get(whiteId);
   const blackName = idToUsername.get(blackId);
   const totalTimeInSecs = 60 * gameInfo.totalTime;
+  let evalGame = false;
+  if (gameInfo.evalGame != null && gameInfo.evalGame)
+    evalGame = gameInfo.evalGame;
   runningGames.set(gameString, {
     chessInstance: new Chess(),
     whiteTimer,
@@ -508,6 +531,7 @@ const joinGame = (socket, gameData) => {
     totalTimeInSecs,
     incrementTimeInSecs: gameInfo.timeIncrement,
     totalTimeInMillis,
+    evalGame,
   });
 
   const joinedGameInfo = {
@@ -661,12 +685,21 @@ const registerSpectator = (socket, toJoinGameData) => {
 const gameRequest = (socket, data) => {
   if (!data || !data.targetName) return;
   const { targetName, totalTimeInSecs, incrementTimeInSecs } = data;
+  let evalGame = false;
+  if (data.evalGame != null && data.evalGame) evalGame = data.evalGame;
   const validTargetName = usernameToSocket.has(targetName);
   const senderName = idToUsername.get(socket.id);
   const senderId = socket.id;
   if (!validTargetName || !senderName) return;
+  if (senderName == targetName) return;
 
-  makeGameRequest(senderName, targetName, totalTimeInSecs, incrementTimeInSecs);
+  makeGameRequest(
+    senderName,
+    targetName,
+    totalTimeInSecs,
+    incrementTimeInSecs,
+    evalGame
+  );
 };
 
 const gameRequestAccept = (socket, data) => {
@@ -677,11 +710,14 @@ const gameRequestAccept = (socket, data) => {
   if (challengeData == null) return;
   const { player1, player2, totalTimeInSecs, incrementTimeInSecs } =
     challengeData;
+  let evalGame = false;
+  if (challengeData.evalGame) evalGame = challengeData.evalGame;
   serverStartGame(
     usernameToSocket.get(player1).id,
     usernameToSocket.get(player2).id,
     totalTimeInSecs,
-    incrementTimeInSecs
+    incrementTimeInSecs,
+    evalGame
   );
 
   challengeMap.delete(challengeString);
