@@ -1,4 +1,4 @@
-const KAYOTE_TIME = 200;
+const KAYOTE_TIME = 500;
 
 class Timer {
   constructor(timeLeft = 0, increment = 0, _gameString, _color) {
@@ -10,32 +10,18 @@ class Timer {
     this.color = _color;
   }
 
-  startHelper() {
-    // if (!this.isRunning) {
-    //   this.startTime = Date.now();
-    //   this.timerId = setTimeout(() => {
-    //     this.stop();
-    //   }, this.timeLeft);
-    //   this.isRunning = true;
-    // }
-    if (this.isRunning) return;
-    this.startTime = Date.now();
-    this.isRunning = true;
-  }
-
   start() {
-    this.timerId = setTimeout(this.startHelper.bind(this), KAYOTE_TIME); // Ensure proper binding of this
+    this.isRunning = true;
+    this.startTime = Date.now();
   }
 
   stop() {
-    if (this.isRunning) {
-      clearTimeout(this.timerId);
-      const elapsedTime = Date.now() - this.startTime;
-      this.timeLeft -= elapsedTime;
-      this.timeLeft += this.increment; // Increment the timeLeft by the increment value
-      this.isRunning = false;
-      clearTimeout(this.timerId);
-    }
+    let timeElapsed = Date.now() - this.startTime;
+    timeElapsed -= KAYOTE_TIME;
+    timeElapsed = Math.max(timeElapsed, 0);
+
+    this.timeLeft -= timeElapsed;
+    this.isRunning = false;
   }
 
   addTime(milliseconds) {
@@ -47,7 +33,9 @@ class Timer {
 
   getTimeLeft() {
     if (this.isRunning) {
-      const elapsedTime = Date.now() - this.startTime;
+      let elapsedTime = Date.now() - this.startTime;
+      elapsedTime -= KAYOTE_TIME;
+      elapsedTime = Math.max(0, elapsedTime);
       const remainingTime = this.timeLeft - elapsedTime;
       return remainingTime;
     }
@@ -83,7 +71,6 @@ function getWinnerByTime(timer1, timer2) {
 
   const winChar =
     timer1LeftOverTime < timer2LeftOverTime ? timer2.color : timer1.color;
-  console.log(`Win CHAR : ${winChar}`);
   return winChar;
 }
 
