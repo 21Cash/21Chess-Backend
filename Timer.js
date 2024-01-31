@@ -19,16 +19,16 @@ class Timer {
     let timeElapsed = Date.now() - this.startTime;
     timeElapsed -= KAYOTE_TIME;
     timeElapsed = Math.max(timeElapsed, 0);
-
     this.timeLeft -= timeElapsed;
     this.isRunning = false;
+    this.addTime(this.increment);
   }
 
   addTime(milliseconds) {
     this.timeLeft += milliseconds;
-    if (!this.isRunning) {
-      this.startTime = Date.now();
-    }
+    // if (!this.isRunning) {
+    //   this.startTime = Date.now();
+    // }
   }
 
   getTimeLeft() {
